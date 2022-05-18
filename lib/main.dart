@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart';
+import 'package:order_up/src/sprite_loader/sprite_loader.dart';
 import 'package:provider/provider.dart';
 
 import 'src/ads/ads_controller.dart';
@@ -229,6 +230,10 @@ class MyApp extends StatelessWidget {
               return audio;
             },
             dispose: (context, audio) => audio.dispose(),
+          ),
+          Provider<SpriteLoader>(
+            lazy: false,
+            create: (context) => SpriteLoader()..init(),
           ),
           Provider(
             create: (context) => Palette(),

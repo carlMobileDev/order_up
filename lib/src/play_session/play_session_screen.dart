@@ -5,19 +5,20 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:flame/widgets.dart';
 import 'package:flutter/material.dart';
 import 'package:order_up/src/game_internals/animal.dart';
 import 'package:order_up/src/game_internals/order.dart';
 import 'package:order_up/src/game_internals/veggie.dart';
 import 'package:go_router/go_router.dart';
 import 'package:logging/logging.dart' hide Level;
+import 'package:order_up/src/sprite_loader/sprite_loader.dart';
 import 'package:provider/provider.dart';
 import 'package:tuple/tuple.dart';
 
 import '../ads/ads_controller.dart';
 import '../audio/audio_controller.dart';
 import '../audio/sounds.dart';
-import '../game_internals/level_state.dart';
 import '../games_services/games_services.dart';
 import '../games_services/score.dart';
 import '../in_app_purchase/in_app_purchase.dart';
@@ -46,6 +47,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
   static final _log = Logger('PlaySessionScreen');
   late Timer gameTimer;
   late Timer newOrderTimer;
+  bool paused = false;
 
   static const _celebrationDuration = Duration(milliseconds: 2000);
 
@@ -62,8 +64,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
   int _ordersComplete = 0;
   late DateTime _startOfPlay;
   late List<int> _playerPositions;
-  late Map<int, Tuple2<Animal, Direction>> _animalPositions;
-  bool shouldAnimalsMove = false;
+  late Map<int, Animal> _animalPositions;
+  bool shouldAnimalsMove = true;
   late List<Veggie> _collectedVeggies;
   late Map<int, Veggie> _veggiePositions;
   late List<Tuple2<Order, bool>> _orders;
@@ -74,6 +76,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
   Widget build(BuildContext context) {
     final palette = context.watch<Palette>();
 
+    final spriteLoader = context.read<SpriteLoader>();
     //print(widget.level.toString());
     return IgnorePointer(
       ignoring: _duringCelebration,
@@ -99,56 +102,74 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
           backgroundColor: palette.backgroundPlaySession,
           body: Stack(
             children: [
+              //Background
+              Container(
+                padding: EdgeInsets.only(top: 10),
+                child: SafeArea(
+                    bottom: false,
+                    child: GridView.builder(
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _x,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: _x * _y,
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
+                        itemBuilder: (context, index) {
+                          return SpriteWidget(
+                              sprite: spriteLoader.lookupGroundSprite(
+                                  index, _x, _y));
+                        })),
+              ),
+              //Top Layer
               Column(
                 children: [
                   SizedBox(height: 10),
+
                   SafeArea(
                     bottom: false,
                     child: GridView.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: _x,
-                        childAspectRatio: 1,
-                      ),
-                      itemCount: _x * _y,
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      physics: NeverScrollableScrollPhysics(),
-                      itemBuilder: (context, index) {
-                        //Draw Player
-                        if (_playerPositions.contains(index)) {
-                          return Container(
-                              color: Colors.blue,
-                              child: Text(index.toString(),
-                                  style: TextStyle(fontSize: 5)));
-                        }
-                        //Draw Veggies
-                        else if (_veggiePositions.containsKey(index)) {
-                          return Container(
-                            color: lookupVeggieColor(_veggiePositions[index]!),
-                          );
-                        }
-                        //Draw Animals
-                        else if (_animalPositions.containsKey(index)) {
-                          return Container(
-                              color: lookupAnimalColor(
-                                  _animalPositions[index]!.item1),
-                              child: Text(
-                                  _animalPositions[index]!
-                                      .item2
-                                      .name
-                                      .toString(),
-                                  style: TextStyle(
-                                      fontSize: 12, color: Colors.white)));
-                        }
-                        //Draw Empty
-                        else {
-                          return Container(
-                              color: Colors.white,
-                              child: Text(index.toString(),
-                                  style: TextStyle(fontSize: 5)));
-                        }
-                      },
-                    ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: _x,
+                          childAspectRatio: 1,
+                        ),
+                        itemCount: _x * _y,
+                        padding: EdgeInsets.zero,
+                        shrinkWrap: true,
+                        physics: NeverScrollableScrollPhysics(),
+                        itemBuilder: (context, index) {
+                          //Draw Player
+                          if (_playerPositions.contains(index)) {
+                            //print('Drawing character at: $index');
+                            return SpriteWidget(
+                                sprite: spriteLoader.lookupCharacterSprite(
+                                    _currentPlayerDirection));
+                          }
+                          //Draw Veggies
+                          else if (_veggiePositions.containsKey(index)) {
+                            //print("Drawing veggie at: $index");
+
+                            return SpriteWidget(
+                              key: _veggiePositions[index]!.key,
+                              sprite: spriteLoader
+                                  .lookupVeggieSprite(_veggiePositions[index]!),
+                            );
+                          }
+                          //Draw Animals
+                          else if (_animalPositions.containsKey(index)) {
+                            //print("Drawing animal at: $index");
+                            print(
+                                'Drawing animal at: $index : ${_animalPositions[index]?.isMoving}');
+                            return SpriteWidget(
+                              key: _animalPositions[index]!.key,
+                              sprite: _animalPositions[index]!
+                                  .getSprite(spriteLoader),
+                            );
+                          } else {
+                            return Container(color: Colors.transparent);
+                          }
+                        }),
                   ),
                   SizedBox(height: 10),
                   Wrap(
@@ -161,7 +182,7 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
                           width: 15,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: lookupVeggieColor(veggie),
+                            color: lookupVeggieColor(veggie.type),
                           ),
                         ),
                     ],
@@ -182,7 +203,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
                               child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    for (Veggie veggie in order.item1.veggies)
+                                    for (VeggieType veggie
+                                        in order.item1.veggies)
                                       Container(
                                         height: 15,
                                         width: 15,
@@ -259,12 +281,15 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
 
     Duration duration = Duration(milliseconds: _gameSpeed);
     Duration orderDuration = Duration(milliseconds: _newOrderSpeed);
-    gameTimer = Timer.periodic(duration, (Timer timer) {
-      update();
-    });
-    newOrderTimer = Timer.periodic(orderDuration, (Timer timer) {
-      generateNewOrder();
-    });
+    if (!paused) {
+      gameTimer = Timer.periodic(duration, (Timer timer) {
+        update();
+      });
+
+      newOrderTimer = Timer.periodic(orderDuration, (Timer timer) {
+        generateNewOrder();
+      });
+    }
   }
 
   @override
@@ -285,9 +310,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
       checkPlayerCollision();
       spawnVeggie();
       _orders = _orders.where((element) => !element.item1.isComplete).toList();
-      //checkIfOrderComplete();
-      // _orders = _newOrders;
-      // _orders.sort((a, b) => a.item1.tick.compareTo(b.item1.tick));
     });
   }
 
@@ -334,8 +356,12 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
       final randomNumber = random.nextInt(_x * _y);
 
       if (randomNumber != 0 && !_veggiePositions.containsKey(randomNumber)) {
-        _veggiePositions.putIfAbsent(randomNumber,
-            () => Veggie.values[random.nextInt(Veggie.values.length)]);
+        _veggiePositions.putIfAbsent(
+            randomNumber,
+            () => Veggie(
+                  type: VeggieType
+                      .values[random.nextInt(VeggieType.values.length)],
+                ));
       }
     }
   }
@@ -365,34 +391,39 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
 
       if (randomNumber != 0 && !_animalPositions.containsKey(randomNumber)) {
         _animalPositions.putIfAbsent(
-            randomNumber,
-            () => Tuple2(Animal.values[random.nextInt(Animal.values.length)],
-                Direction.values[random.nextInt(Direction.values.length)]));
+          randomNumber,
+          () => Animal(
+              type:
+                  AnimalType.values[random.nextInt(AnimalType.values.length)]),
+        );
       }
     }
   }
 
   /// Moves or turns animals based on their direction once every two cycles
   /// Generates a random num < 10.
-  /// If num 0, 1, 2 move the animal in the direction it is facing
-  /// If num  3 - 9, turn the animal
+  /// If num 0-6 move the animal in the direction it is facing
+  /// If num  7 - 9, turn the animal
   /// If num == 10, do nothing and rest
   void moveAnimals() {
     final random = Random();
 
-    Map<int, Tuple2<Animal, Direction>> _newAnimalPositions =
-        Map.from(_animalPositions);
+    Map<int, Animal> _newAnimalPositions = Map.from(_animalPositions);
 
     _animalPositions.forEach((key, value) {
       Direction newDirection =
           Direction.values[random.nextInt(Direction.values.length)];
       int actionNum = random.nextInt(10);
       if (shouldAnimalsMove && actionNum != 10) {
-        if (actionNum < 3) {
-          switch (value.item2) {
+        if (actionNum < 7) {
+          switch (value.direction) {
             case Direction.left:
               if (key % _x != 0 && !_veggiePositions.containsKey(key - 1)) {
                 _newAnimalPositions.remove(key);
+                value.isMoving = value.isMoving + 1;
+                if (value.isMoving > 2) {
+                  value.isMoving = 1;
+                }
                 _newAnimalPositions.putIfAbsent(key - 1, () => value);
               }
               break;
@@ -400,12 +431,20 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
               if (key % _x != _x - 1 &&
                   !_veggiePositions.containsKey(key + 1)) {
                 _newAnimalPositions.remove(key);
+                value.isMoving = value.isMoving + 1;
+                if (value.isMoving > 2) {
+                  value.isMoving = 1;
+                }
                 _newAnimalPositions.putIfAbsent(key + 1, () => value);
               }
               break;
             case Direction.up:
               if (key >= _x && !_veggiePositions.containsKey(key - _x)) {
                 _newAnimalPositions.remove(key);
+                value.isMoving = value.isMoving + 1;
+                if (value.isMoving > 2) {
+                  value.isMoving = 1;
+                }
                 _newAnimalPositions.putIfAbsent(key - _x, () => value);
               }
               break;
@@ -413,26 +452,32 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
               if (key < _x * (_y - 1) &&
                   !_veggiePositions.containsKey(key + _x)) {
                 _newAnimalPositions.remove(key);
+                value.isMoving = value.isMoving + 1;
+                if (value.isMoving > 2) {
+                  value.isMoving = 1;
+                }
                 _newAnimalPositions.putIfAbsent(key + _x, () => value);
               }
               break;
           }
         } else {
-          _newAnimalPositions.update(
-              key, (value) => Tuple2(value.item1, newDirection));
+          _newAnimalPositions[key]!.direction = newDirection;
+          _newAnimalPositions[key]!.isMoving = 0;
         }
+      } else {
+        _newAnimalPositions[key]!.isMoving = 0;
       }
     });
     _animalPositions = _newAnimalPositions;
-    shouldAnimalsMove = !shouldAnimalsMove;
+    //shouldAnimalsMove = !shouldAnimalsMove;
   }
 
   void completeOrder(Order order) {
-    final Map<Veggie, int> orderItems = {};
-    final Map<Veggie, int> veggieItems = {};
+    final Map<VeggieType, int> orderItems = {};
+    final Map<VeggieType, int> veggieItems = {};
     _collectedVeggies.forEach((item) {
-      veggieItems.putIfAbsent(item, () => 0);
-      veggieItems[item] = veggieItems[item]! + 1;
+      veggieItems.putIfAbsent(item.type, () => 0);
+      veggieItems[item.type] = veggieItems[item.type]! + 1;
     });
 
     order.veggies.forEach((item) {
@@ -445,7 +490,6 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
     orderItems.forEach((key, value) {
       print("Completing Order: ${orderItems} in ${veggieItems}");
       if (!veggieItems.containsKey(key) || (veggieItems[key] ?? 0) < value) {
-        print("Does not contain necessary ingredients");
         contains = false;
       }
     });
@@ -454,7 +498,8 @@ class _PlaySessionScreenState extends State<PlaySessionScreen> {
       _points = _points + order.veggies.length;
       order.isComplete = true;
       order.veggies.forEach((element) {
-        _collectedVeggies.remove(element);
+        _collectedVeggies.remove(_collectedVeggies
+            .firstWhere((Veggie veggie) => veggie.type == element));
       });
       _ordersComplete = _ordersComplete + 1;
     }

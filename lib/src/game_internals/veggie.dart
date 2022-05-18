@@ -1,24 +1,32 @@
 import 'package:flutter/material.dart';
 
-enum Veggie {
+enum VeggieType {
   carrot,
   eggplant,
   lettuce,
   tomato,
 }
 
-Color lookupVeggieColor(Veggie veggie) {
-  switch (veggie) {
-    case Veggie.carrot:
+class Veggie {
+  late GlobalKey key;
+  VeggieType type;
+  Veggie({required this.type}) {
+    key = GlobalKey();
+  }
+}
+
+Color lookupVeggieColor(VeggieType type) {
+  switch (type) {
+    case VeggieType.carrot:
       return Colors.orange;
-    case Veggie.eggplant:
+    case VeggieType.eggplant:
       return Colors.purple;
-    case Veggie.lettuce:
+    case VeggieType.lettuce:
       return Colors.green;
-    case Veggie.tomato:
+    case VeggieType.tomato:
       return Colors.red;
   }
 }
 
 int compareVeggies(Veggie one, Veggie other) =>
-    one.index.compareTo(other.index);
+    one.type.index.compareTo(other.type.index);
